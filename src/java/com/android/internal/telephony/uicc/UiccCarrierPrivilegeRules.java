@@ -104,6 +104,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
     private static final int EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE = 2;
     private static final int EVENT_CLOSE_LOGICAL_CHANNEL_DONE = 3;
     private static final int EVENT_PKCS15_READ_DONE = 4;
+    private static final int EVENT_LOAD_TIMEOUT = 5;
 
     // State of the object.
     private static final int STATE_LOADING  = 0;
@@ -113,6 +114,14 @@ public class UiccCarrierPrivilegeRules extends Handler {
     // Max number of retries for open logical channel, interval is 5s.
     private static final int MAX_RETRY = 2;
     private static final int RETRY_INTERVAL_MS = 5000;
+    // Legacy vendor RILs (the Nougat MediaTek mtk-ril.so on the Meizu MX6) complete
+    // RIL_REQUEST_SIM_OPEN_CHANNEL with a stale token when the AID is absent, and
+    // consumer SIMs lack the ARA-D, ARA-M and PKCS15 applets probed here. libril
+    // drops the response ("RIL_onRequestComplete: invalid RIL_Token"), so neither
+    // success nor error ever arrives, this object stays in STATE_LOADING, the
+    // profile never reaches SIM_STATE_LOADED and no subscription is created. A
+    // timeout rather than an error-path fix: each probed AID is eaten the same way.
+    private static final int LOAD_TIMEOUT_MS = 30000;
     private static final int STATUS_CODE_CONDITION_NOT_SATISFIED = 0x6985;
     private static final int STATUS_CODE_APPLET_SELECT_FAILED = 0x6999;
 
@@ -225,6 +234,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
         // Open logical channel with ARA_D.
         mAIDInUse = ARAD;
         openChannel(mAIDInUse);
+        sendEmptyMessageDelayed(EVENT_LOAD_TIMEOUT, LOAD_TIMEOUT_MS);
     }
 
     @VisibleForTesting
@@ -545,6 +555,14 @@ public class UiccCarrierPrivilegeRules extends Handler {
                 }
                 break;
 
+            case EVENT_LOAD_TIMEOUT:
+                if (mState.get() == STATE_LOADING) {
+                    Rlog.e(LOG_TAG, "Timeout loading carrier privilege rules;"
+                            + " the vendor RIL dropped the logical channel response");
+                    updateState(STATE_ERROR, "Timeout loading carrier privilege rules.");
+                }
+                break;
+
             default:
                 Rlog.e(LOG_TAG, "Unknown event " + msg.what);
         }
@@ -674,6 +692,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
      */
     private void updateState(int newState, String statusMessage) {
         mState.set(newState);
+        removeMessages(EVENT_LOAD_TIMEOUT);
         if (mLoadedCallback != null) {
             mLoadedCallback.sendToTarget();
         }
