@@ -203,6 +203,22 @@ public class RadioDataProxy extends RadioServiceProxy {
     }
 
     /**
+     * Whether {@link #setDataProfile} would reach the HAL for these profiles. IRadio 1.0 to 1.3
+     * carry only persistent (modem cognitive) profiles, and the HAL is not called at all when
+     * none of the given profiles is persistent.
+     * @param profiles The data profiles about to be sent
+     * @return false if setDataProfile would send nothing
+     */
+    public boolean hasDataProfilesToSend(DataProfile[] profiles) {
+        if (isEmpty()) return false;
+        if (isAidl() || mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_4)) return true;
+        for (DataProfile dp : profiles) {
+            if (dp.isPersistent()) return true;
+        }
+        return false;
+    }
+
+    /**
      * Call IRadioData#setDataProfile
      * @param serial Serial number of request
      * @param profiles Array of DataProfiles to set

@@ -4162,6 +4162,22 @@ public class RIL extends BaseCommands implements CommandsInterface {
     public void setDataProfile(DataProfile[] dps, boolean isRoaming, Message result) {
         RadioDataProxy dataProxy = getRadioServiceProxy(RadioDataProxy.class, result);
         if (!dataProxy.isEmpty()) {
+            if (!dataProxy.hasDataProfilesToSend(dps)) {
+                // IRadio 1.0-1.3 carries persistent profiles only, and RadioDataProxy skips the
+                // HAL call when there is none. A RILRequest obtained here would never be answered:
+                // it would sit in mRequestList holding the RIL wakelock until WAKE_LOCK_TIMEOUT,
+                // on every data profile update. There is nothing to program into the modem, so
+                // complete the request now.
+                if (RILJ_LOGD) {
+                    riljLog("setDataProfile: no persistent data profile for IRadio "
+                            + mRadioVersion + ", nothing to send");
+                }
+                if (result != null) {
+                    AsyncResult.forMessage(result, null, null);
+                    result.sendToTarget();
+                }
+                return;
+            }
             RILRequest rr = obtainRequest(RIL_REQUEST_SET_DATA_PROFILE, result,
                     mRILDefaultWorkSource);
 
