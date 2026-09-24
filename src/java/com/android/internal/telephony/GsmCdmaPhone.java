@@ -3123,8 +3123,17 @@ public class GsmCdmaPhone extends Phone {
                 */
                 String version = (String)ar.result;
                 if (version != null) {
+                    // gsm.version.baseband is a list property: the per-phone values are
+                    // joined with ',' and a ',' inside a value is escaped as "\,". A
+                    // MediaTek modem reports "<build>, <date>" (Meizu MX6:
+                    // "Y.LR11.W1603.MD.MP.V62.4.P9, 2018/01/16 14:57"), and PROP_VALUE_MAX/2
+                    // per phone let two such values exceed the 91-byte limit once joined:
+                    // SystemProperties.set threw and com.android.phone crashed on every
+                    // start. Drop the commas and size each value so the list always fits.
+                    version = version.replace(',', ' ');
+                    final int phones = Math.max(1, TelephonyManager.from(mContext).getActiveModemCount());
                     int length = version.length();
-                    final int MAX_VERSION_LEN = SystemProperties.PROP_VALUE_MAX/2;
+                    final int MAX_VERSION_LEN = (SystemProperties.PROP_VALUE_MAX - phones) / phones;
                     TelephonyManager.from(mContext).setBasebandVersionForPhone(getPhoneId(),
                             length <= MAX_VERSION_LEN ? version
                                 : version.substring(length - MAX_VERSION_LEN, length));
