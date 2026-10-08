@@ -1074,6 +1074,7 @@ public class PhoneSwitcher extends Handler {
         boolean hasAnyActiveSubscription = false;
 
         // Check if phoneId to subId mapping is changed.
+        boolean phoneSubChanged = false;
         for (int i = 0; i < mActiveModemCount; i++) {
             int sub = mSubscriptionController.getSubIdUsingPhoneId(i);
 
@@ -1084,6 +1085,7 @@ public class PhoneSwitcher extends Handler {
                 sb.append("->").append(sub);
                 mPhoneSubscriptions[i] = sub;
                 diffDetected = true;
+                phoneSubChanged = true;
             }
         }
 
@@ -1184,15 +1186,31 @@ public class PhoneSwitcher extends Handler {
                     for (Integer i : newActivePhones) log("  " + i);
                 }
 
+                boolean activeSetChanged = false;
                 for (int phoneId = 0; phoneId < mActiveModemCount; phoneId++) {
                     if (!newActivePhones.contains(phoneId)) {
+                        activeSetChanged |= mPhoneStates[phoneId].active;
                         deactivate(phoneId);
                     }
                 }
 
                 // only activate phones up to the limit
                 for (int phoneId : newActivePhones) {
+                    activeSetChanged |= !mPhoneStates[phoneId].active;
                     activate(phoneId);
+                }
+
+                // Legacy IRadio (setDataAllowed): the network factories re-check
+                // their requests only on mActivePhoneRegistrants, which fires from
+                // onDdsSwitchResponse, i.e. only after a RIL command. When the SIM loads
+                // after radio on, the phone is already active and only its subId changes
+                // (-1 -> valid), so no command is sent and every request that arrived while
+                // the subId was invalid stays "not applied" in TelephonyNetworkFactory for
+                // good -- the mobile-data-always-on background request included. With
+                // no command in flight there is nothing to wait for: tell them now.
+                if (phoneSubChanged && !activeSetChanged) {
+                    log("phone->subId mapping changed without a switch, notify active phones");
+                    mActivePhoneRegistrants.notifyRegistrants();
                 }
             }
         }
